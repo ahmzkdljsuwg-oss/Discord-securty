@@ -56,6 +56,28 @@ def build_embed(
     return embed
 
 
+async def _persist_event(
+    bot: discord.Client,
+    guild: Optional[discord.Guild],
+    event: str,
+    actor: Optional[str],
+    target: Optional[str],
+    action: str,
+    reason: str,
+    success: bool,
+) -> None:
+    """Store the event so /audit and /stats can read it back."""
+    if guild is None:
+        return
+    engine = getattr(bot, "engine", None)
+    if engine is None:
+        return
+    try:
+        await engine.record_event(guild.id, event, actor, target, action, reason, success)
+    except Exception as exc:  # persistence must never break logging
+        BASE_LOG.debug("Could not persist event %s: %s", event, exc)
+
+
 async def send_log(
     bot: discord.Client,
     guild: Optional[discord.Guild],
@@ -75,6 +97,7 @@ async def send_log(
         event=event, actor=actor, target=target, action=action,
         reason=reason, success=success, color=color, extra=extra,
     )
+    await _persist_event(bot, guild, event, actor, target, action, reason, success)
     channel = None
     if log_channel_id:
         channel = bot.get_channel(int(log_channel_id))

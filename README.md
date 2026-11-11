@@ -96,3 +96,23 @@ python -m unittest discover -s tests -v
 Offline tests cover storage persistence, whitelist CRUD, owner/whitelist exemption,
 punishments, link/invite/mention filters, spam detection, raid→lockdown flow,
 lockdown snapshot restore, and command registration/owner gating.
+
+## Slash commands (owner only)
+
+| Command | What it does |
+| --- | --- |
+| `/havx @member` | Add a member to the whitelist |
+| `/abdo @member` | Remove a member from the whitelist |
+| `/whitelist` | Show the whitelist |
+| `/security` | Show every protection module state |
+| `/lockdown` / `/unlock` | Lock / unlock the server |
+| `/panic` | Emergency mode: all protections ON + lockdown; run again to stand down and restore the previous settings |
+| `/antinuke` `/antiraid` `/antispam` `/antiwebhook` `/antibot` `/antilink` | Toggle that module (`enabled:true/false`, empty = flip) |
+| `/backup` | Save settings + whitelist to the database and export the server structure |
+| `/restore` | Restore the latest saved backup |
+| `/audit` | Last 15 recorded protection events |
+| `/stats` | Protection statistics |
+| `/help` | Command list |
+
+Every slash command verifies `guild.owner_id` and rejects anyone else (the attempt is
+logged to the log channel). Slash commands are synced globally and per guild on startup.

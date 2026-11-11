@@ -43,6 +43,24 @@ SCHEMA_STATEMENTS = [
         activated_by BIGINT NOT NULL,
         activated_at TEXT NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS events (
+        id TEXT PRIMARY KEY,
+        guild_id BIGINT NOT NULL,
+        event TEXT NOT NULL,
+        actor TEXT,
+        target TEXT,
+        action TEXT,
+        reason TEXT,
+        success INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS backups (
+        id TEXT PRIMARY KEY,
+        guild_id BIGINT NOT NULL,
+        created_by BIGINT NOT NULL,
+        created_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+    )""",
 ]
 
 
@@ -306,6 +324,105 @@ class Database:
         await self.backend.execute(
             f"DELETE FROM lockdown WHERE guild_id = {p(1)}", (guild_id,)
         )
+
+    # ---- security events ----
+    async def event_add(
+        self, guild_id: int, event: str, actor: str, target: str,
+        action: str, reason: str, success: bool,
+    ) -> None:
+        import uuid
+        from datetime import datetime, timezone
+        p = self.backend.p
+        await self.backend.execute(
+            f"INSERT INTO events (id, guild_id, event, actor, target, action, reason, success, created_at) "
+            f"VALUES ({p(1)}, {p(2)}, {p(3)}, {p(4)}, {p(5)}, {p(6)}, {p(7)}, {p(8)}, {p(9)})",
+            (
+                uuid.uuid4().hex, guild_id, str(event)[:80], str(actor or "")[:120],
+                str(target or "")[:120], str(action or "")[:200], str(reason or "")[:200],
+                1 if success else 0,
+                datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            ),
+        )
+
+    async def event_list(self, guild_id: int, limit: int = 15) -> list[dict]:
+        p = self.backend.p
+        rows = await self.backend.fetchall(
+            f"SELECT event, actor, target, action, reason, success, created_at FROM events "
+            f"WHERE guild_id = {p(1)} ORDER BY created_at DESC LIMIT {p(2)}",
+            (guild_id, int(limit)),
+        )
+        return [
+            {
+                "event": str(r[0]), "actor": str(r[1] or "—"), "target": str(r[2] or "—"),
+                "action": str(r[3] or "—"), "reason": str(r[4] or "—"),
+                "success": bool(r[5]), "created_at": str(r[6]),
+            }
+            for r in rows
+        ]
+
+    async def event_counts(self, guild_id: int) -> list[tuple[str, int]]:
+        p = self.backend.p
+        rows = await self.backend.fetchall(
+            f"SELECT event, COUNT(*) AS n FROM events WHERE guild_id = {p(1)} "
+            f"GROUP BY event ORDER BY n DESC",
+            (guild_id,),
+        )
+        return [(str(r[0]), int(r[1])) for r in rows]
+
+    async def event_trim(self, guild_id: int, keep: int = 1000) -> None:
+        p = self.backend.p
+        await self.backend.execute(
+            f"DELETE FROM events WHERE guild_id = {p(1)} AND id NOT IN "
+            f"(SELECT id FROM events WHERE guild_id = {p(1)} ORDER BY created_at DESC LIMIT {p(2)})",
+            (guild_id, int(keep)),
+        )
+
+    # ---- backups ----
+    async def backup_save(self, guild_id: int, payload: dict, created_by: int, label: str = "auto") -> str:
+        import uuid
+        from datetime import datetime, timezone
+        p = self.backend.p
+        backup_id = uuid.uuid4().hex[:12]
+        await self.backend.execute(
+            f"INSERT INTO backups (id, guild_id, created_by, created_at, payload) "
+            f"VALUES ({p(1)}, {p(2)}, {p(3)}, {p(4)}, {p(5)})",
+            (
+                backup_id, guild_id, created_by,
+                datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+                json.dumps({"label": label, "data": payload}),
+            ),
+        )
+        return backup_id
+
+    async def backup_latest(self, guild_id: int, label: str | None = None) -> dict | None:
+        p = self.backend.p
+        rows = await self.backend.fetchall(
+            f"SELECT id, created_at, payload FROM backups WHERE guild_id = {p(1)} "
+            f"ORDER BY created_at DESC LIMIT 50",
+            (guild_id,),
+        )
+        for row in rows:
+            try:
+                blob = json.loads(row[2])
+            except Exception:
+                continue
+            if label is None or blob.get("label") == label:
+                return {"id": str(row[0]), "created_at": str(row[1]), "data": blob.get("data", {})}
+        return None
+
+    async def backup_delete_label(self, guild_id: int, label: str) -> None:
+        p = self.backend.p
+        rows = await self.backend.fetchall(
+            f"SELECT id, payload FROM backups WHERE guild_id = {p(1)}", (guild_id,)
+        )
+        for row in rows:
+            try:
+                if json.loads(row[1]).get("label") == label:
+                    await self.backend.execute(
+                        f"DELETE FROM backups WHERE id = {p(1)}", (str(row[0]),)
+                    )
+            except Exception:
+                continue
 
     # ---- single-instance guard ----
     ADVISORY_LOCK_KEY = 9876543210

@@ -54,6 +54,35 @@ class HavxBot(commands.Bot):
         self.antiwebhook = AntiWebhook(self, self.engine)
         await havx_commands.setup(self)
         havx_commands.register_toggles(self)
+        import slash
+        await slash.setup(self)
+        self.tree.error(self._on_app_command_error)
+
+    async def _on_app_command_error(self, interaction: discord.Interaction, error: Exception) -> None:
+        log.warning("Slash command error: %s", error)
+        msg = "⚠️ This command failed. The owner should check the bot logs."
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
+        except discord.HTTPException:
+            pass
+
+    async def sync_commands(self) -> None:
+        """Publish slash commands so they appear in Discord."""
+        try:
+            synced = await self.tree.sync()
+            log.info("Synced %d slash commands", len(synced))
+        except Exception as exc:
+            log.warning("Slash command sync failed: %s", exc)
+        for guild in self.guilds:
+            try:
+                self.tree.copy_global_to(guild=guild)
+                await self.tree.sync(guild=guild)
+                log.info("Synced slash commands for guild %s", guild.id)
+            except Exception as exc:
+                log.warning("Guild slash sync failed for %s: %s", guild.id, exc)
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s (%s) • guilds=%d", self.user, self.user.id, len(self.guilds))
@@ -61,6 +90,9 @@ class HavxBot(commands.Bot):
             activity=discord.Activity(type=discord.ActivityType.watching, name="over the server • !help"),
             status=discord.Status.online,
         )
+        if not getattr(self, "_synced", False):
+            self._synced = True
+            await self.sync_commands()
         for guild in self.guilds:
             await self.antinuke.prime_cache(guild)
             await self.lockdown.restore_on_startup(guild)

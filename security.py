@@ -203,3 +203,49 @@ class SecurityEngine:
             except (discord.Forbidden, discord.HTTPException):
                 continue
         return removed
+
+    # ---------------- event history ----------------
+    async def record_event(
+        self, guild_id: int, event: str, actor, target, action: str,
+        reason: str, success: bool,
+    ) -> None:
+        await self.db.event_add(guild_id, event, actor, target, action, reason, success)
+        self._event_counter = getattr(self, "_event_counter", 0) + 1
+        if self._event_counter % 25 == 0:
+            try:
+                await self.db.event_trim(guild_id, keep=1000)
+            except Exception:
+                pass
+
+    # ---------------- settings backup / restore ----------------
+    async def snapshot_settings(self, guild: discord.Guild, actor_id: int, label: str = "auto") -> str:
+        data = await self.settings(guild)
+        whitelist = await self.db.whitelist_list(guild.id)
+        payload = {
+            "settings": dict(data),
+            "whitelist": [{"user_id": uid, "added_by": by, "added_at": at} for uid, by, at in whitelist],
+        }
+        return await self.db.backup_save(guild.id, payload, actor_id, label=label)
+
+    async def restore_settings(self, guild: discord.Guild, label: str | None = None) -> tuple[bool, str]:
+        record = await self.db.backup_latest(guild.id, label=label)
+        if not record:
+            return (False, "No saved backup found for this server.")
+        payload = record.get("data") or {}
+        settings = payload.get("settings") or {}
+        merged = dict(DEFAULT_SETTINGS)
+        merged.update(settings)
+        await self.save(guild, merged)
+        restored_users = 0
+        for entry in payload.get("whitelist", []):
+            try:
+                uid = int(entry["user_id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if uid == guild.owner_id or await self.db.is_whitelisted(guild.id, uid):
+                continue
+            await self.db.whitelist_add(guild.id, uid, int(entry.get("added_by", guild.owner_id)),
+                                        str(entry.get("added_at", "restored")))
+            restored_users += 1
+        return (True, f"Restored backup `{record['id']}` from {record['created_at']} "
+                      f"({restored_users} whitelist entr{'y' if restored_users == 1 else 'ies'} re-added).")

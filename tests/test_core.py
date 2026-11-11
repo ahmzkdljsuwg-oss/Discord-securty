@@ -51,6 +51,7 @@ class FakeRole:
 class FakeMember(FakeUser):
     def __init__(self, uid, bot=False, roles=None):
         super().__init__(uid, bot)
+        self.mention = f"<@{uid}>"
         self.roles = roles or []
         self.top_role = FakeRole(9999, "bot-highest")
         self.timed_out = None
