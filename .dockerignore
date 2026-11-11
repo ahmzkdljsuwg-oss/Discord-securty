@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+venv
+__pycache__
+*.pyc
+data
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.env
+.railway
+tests
