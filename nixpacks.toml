@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["python312", "gcc"]
+nixPkgs = ["python312", "python312Packages.pip", "gcc"]
 
 [phases.install]
-cmds = ["pip install --no-cache-dir -r requirements.txt"]
+cmds = ["python -m pip install --no-cache-dir --upgrade pip", "python -m pip install --no-cache-dir -r requirements.txt"]
 
 [start]
 cmd = "python main.py"

@@ -80,7 +80,8 @@ permission grant nothing.
 
 ## Railway deployment
 
-1. Create a project + service from this repository (Nixpacks detects Python 3.12).
+1. Create a project + service from this repository. The build uses the `Dockerfile`
+   (`python:3.12-slim`); `nixpacks.toml` is kept as a working fallback.
 2. Add variables: `DISCORD_BOT_TOKEN`, and `DATABASE_URL` from a Postgres plugin.
 3. Start command: `python main.py` (also set in `railway.json`).
 4. Restart policy: on failure (configured in `railway.json`).
